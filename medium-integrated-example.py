@@ -1,5 +1,6 @@
 # Process CSV
-import csv, requests, os
+import json, requests, os
+import urllib.parse, csv
 
 env = "https://lzq49041.live.dynatrace.com"
 token = os.getenv("hotsessiontoken")
@@ -19,7 +20,7 @@ healthMetrics = {
         "metric": "builtin:apps.web.action.percentageOfUserActionsAffectedByErrors",
         "maxDelta": 5,
     },
-    "SERVICE": {"metric": "builtin:service.errors.group.total.rate", "maxDelta": 5},
+    "SERVICE": {"metric": "builtin:service.errors.total.rate", "maxDelta": 5},
     "PROCESS_GROUP": {"metric": "", "maxDelta": 5},
     "HOST": {"metric": "", "maxDelta": 5},
 }
@@ -298,16 +299,16 @@ def createDynatraceDashboard(dashboardDetails):
 if __name__ == "__main__":
     # Grab the change details from the target file
     changes = parseChangeDetails("./singlechangeExample.csv")
-
+    
     # Add events to the service for the qg period and change start/end times
     for change in changes:
 
         # process the qg period
-        letter = change["TestPeriod"][
-            -1:
-        ]  # make this a separate entry = no weird processing
+        # make this a separate entry = no weird processing
+        letter = change["TestPeriod"][-1:]  
         val = int(change["TestPeriod"][:-1])
         QualityGateLength = val * multiplier[letter]
+        entityType = change["AffectedEntities"].split('-')[0]
 
         referencePeriodStart = int(change["StartDate"]) - QualityGateLength
         referencePeriodEnd = int(change["StartDate"])
@@ -315,11 +316,48 @@ if __name__ == "__main__":
         QualityCheckingEnd = int(change["EndDate"]) + QualityGateLength
 
         # Get the entity and key components that relate to it.
-        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Api-Token {token}",
+        }
+        url = f"{env}/api/v2/metrics/query"
+        url += f"?metricSelector={urllib.parse.quote_plus(healthMetrics[entityType]['metric'])}"
+        url += "&entitySelector=" + urllib.parse.quote_plus(f'type("{entityType}"),entityId("{change["AffectedEntities"]}")')
+        # print(url)
+        r = requests.get(url, headers=headers)
+        # print(f"uri: {url}, response: {r}, resBody: {r.text}")
 
         # This is the bit that works with the new API
         # if the current drops against the extant or a static then problem
 
+ChangeFinishTime = 1606711764531
+entity = 'SERVICE-2140EC6FA1E12D6F'
+metric = 'builtin:service.response.time'
+
+# Get the entity and key components that relate to it.
+pre_change_query = f'{env}/api/v2/metrics/query?metricSelector={metric}:percentile(50)' \
+                        + f'&entitySelector=type("{entity.split("-")[0]}"),entityId("{entity}")'\
+                        + f'&from={ChangeFinishTime-60 * 60 * 24 * 1000}' \
+                        + f'&to={ChangeFinishTime}' \
+                        + f'&resolution=Inf'
+pre_Change = requests.get(pre_change_query, headers={"Content-Type": "application/json","Authorization": f"Api-Token {token}"})
+pre_median = json.loads(pre_Change.text)['result'][0]['data'][0]['values'][0]
+
+post_change_query = f'{env}/api/v2/metrics/query?metricSelector={metric}:percentile(50)' \
+                        + f'&entitySelector=type("{entity.split("-")[0]}"),entityId("{entity}")' \
+                        + f'&from={ChangeFinishTime}' \
+                        + f'&to={ChangeFinishTime+60 * 60 * 24 * 1000}' \
+                        + f'&resolution=Inf'
+post_Change = requests.get(post_change_query, headers={"Content-Type": "application/json","Authorization": f"Api-Token {token}"})
+post_median = json.loads(post_Change.text)['result'][0]['data'][0]['values'][0]
+
+# If there was more than a 5% increase in response time
+if (pre_median-post_median < -0.05*pre_median): 
+    print(f"A significant different was detected after the change - consider investigation or change roll-back")
+else: 
+    print(f"No Quality impact detected after the change")
+
+exit
         
 
         """ Extra stuff we can ignore for simple demo
