@@ -5,7 +5,7 @@ import urllib.parse, csv
 env = "https://lzq49041.live.dynatrace.com"
 token = os.getenv("hotsessiontoken")
 
-#
+# Conversion for time periods
 multiplier = {
     "S": 1000,
     "M": 60 * 1000,
@@ -14,7 +14,7 @@ multiplier = {
     "W": 60 * 60 * 24 * 1000 * 7,
 }
 
-# entityToHealthMetrics
+# Metric's we'll use to check the impact/quality after the change
 healthMetrics = {
     "APPLICATION": {
         "metric": "builtin:apps.web.action.percentageOfUserActionsAffectedByErrors",
@@ -32,18 +32,17 @@ performanceMetrics = {
     "HOST": {"metric": "", "maxDelta": 5},
 }
 
-
 def parseChangeDetails(file):
-    """[summary]
+    """Parses the contents of a csv file into the expected fields
 
     Args:
-        file ([type]): [description]
+        file (string): the path to a csv file with the required headers
 
     Raises:
-        Exception: [description]
+        Exception: If the csvfile does not contain the headers required
 
     Returns:
-        [type]: [description]
+        list(dict): a list of dicts that represents each line of the input csv file
     """
     with open(file) as csvfile:
         changes = csv.DictReader(csvfile)
@@ -65,11 +64,15 @@ def parseChangeDetails(file):
 
 
 def createDynatraceEvent(entity, eventData):
-    """[summary]
+    """Create a Dynatrace Event on the entity using information in eventData
 
     Args:
-        entity ([type]): [description]
-        eventData ([type]): [description]
+        entity (string): A Dynatrace Entity Type <ENTITY-TYPE>-<IDENTIFIER>
+        eventData (dict): 
+            name: string
+            starttime: number
+            endtime: number
+
     """
     print(eventData)
     body = {
@@ -91,11 +94,11 @@ def createDynatraceEvent(entity, eventData):
     # print(headers)
     url = f"{env}/api/v1/events"
     r = requests.post(url, json=body, headers=headers)
-    print(f"uri: {url}, response: {r}, resBody: {r.text}")
+    # print(f"uri: {url}, response: {r}, resBody: {r.text}")
 
 
 def createDynatraceProblem(entity, eventData):
-    """[summary]
+    """ Create 
 
     Args:
         entity ([type]): [description]
@@ -139,151 +142,6 @@ def fetchEntityDetails(entity, start=None, end=None):
     r = requests.get(url, headers=headers)
     print(f"uri: {url}, response: {r}, resBody: {r.text}")
 
-
-def createDynatraceDashboard(dashboardDetails):
-    """[summary]
-
-    Args:
-        dashboardDetails ([type]): [description]
-    """
-    body = {
-        "metadata": {
-            "configurationVersions": [3],
-            "clusterVersion": "1.206.95.20201116-094826",
-        },
-        "dashboardMetadata": {
-            "name": "QualityGate Overview",
-            "shared": True,
-            "sharingDetails": {"linkShared": True, "published": True},
-            "dashboardFilter": {"timeframe": ""},
-            "tags": [dashboardDetails["ChangeID"], "QualityGateReport"],
-        },
-        "tiles": [
-            {
-                "name": "Markdown",
-                "tileType": "MARKDOWN",
-                "configured": True,
-                "bounds": {"top": 38, "left": 0, "width": 1102, "height": 152},
-                "tileFilter": {},
-                "markdown": "## This is a Markdown tile\n\nIt supports **rich text** and [links](https://dynatrace.com)",
-            },
-            {
-                "name": "Custom chart",
-                "tileType": "CUSTOM_CHARTING",
-                "configured": True,
-                "bounds": {"top": 228, "left": 0, "width": 532, "height": 152},
-                "tileFilter": {"timeframe": "2020-11-30 20:00 to 2020-11-30 22:00"},
-                "filterConfig": {
-                    "type": "MIXED",
-                    "customName": "Lock time",
-                    "defaultName": "Custom chart",
-                    "chartConfig": {
-                        "legendShown": True,
-                        "type": "TIMESERIES",
-                        "series": [
-                            {
-                                "metric": "builtin:service.lockTime",
-                                "aggregation": "NONE",
-                                "type": "LINE",
-                                "entityType": "SERVICE",
-                                "dimensions": [
-                                    {
-                                        "id": "0",
-                                        "name": "dt.entity.service",
-                                        "values": [],
-                                        "entityDimension": True,
-                                    }
-                                ],
-                                "sortAscending": False,
-                                "sortColumn": True,
-                                "aggregationRate": "TOTAL",
-                            }
-                        ],
-                        "resultMetadata": {},
-                    },
-                    "filtersPerEntityType": {
-                        "SERVICE": {"SPECIFIC_ENTITIES": ["SERVICE-0759B154091378CA"]}
-                    },
-                },
-            },
-            {
-                "name": "Problems",
-                "tileType": "OPEN_PROBLEMS",
-                "configured": True,
-                "bounds": {"top": 418, "left": 0, "width": 152, "height": 152},
-                "tileFilter": {"timeframe": "2020-11-30 20:00 to 2020-11-30 22:00"},
-            },
-            {
-                "name": "Problems",
-                "tileType": "OPEN_PROBLEMS",
-                "configured": True,
-                "bounds": {"top": 418, "left": 570, "width": 152, "height": 152},
-                "tileFilter": {"timeframe": "2020-11-30 20:00 to 2020-11-30 22:00"},
-            },
-            {
-                "name": "Custom chart",
-                "tileType": "CUSTOM_CHARTING",
-                "configured": True,
-                "bounds": {"top": 228, "left": 570, "width": 532, "height": 152},
-                "tileFilter": {"timeframe": "2020-11-30 20:00 to 2020-11-30 22:00"},
-                "filterConfig": {
-                    "type": "MIXED",
-                    "customName": "Lock time",
-                    "defaultName": "Custom chart",
-                    "chartConfig": {
-                        "legendShown": True,
-                        "type": "TIMESERIES",
-                        "series": [
-                            {
-                                "metric": "builtin:service.lockTime",
-                                "aggregation": "NONE",
-                                "type": "LINE",
-                                "entityType": "SERVICE",
-                                "dimensions": [
-                                    {
-                                        "id": "0",
-                                        "name": "dt.entity.service",
-                                        "values": [],
-                                        "entityDimension": True,
-                                    }
-                                ],
-                                "sortAscending": False,
-                                "sortColumn": True,
-                                "aggregationRate": "TOTAL",
-                            }
-                        ],
-                        "resultMetadata": {},
-                    },
-                    "filtersPerEntityType": {
-                        "SERVICE": {"SPECIFIC_ENTITIES": ["SERVICE-0759B154091378CA"]}
-                    },
-                },
-            },
-            {
-                "name": "Quality Gate Reference Period",
-                "tileType": "HEADER",
-                "configured": True,
-                "bounds": {"top": 190, "left": 570, "width": 304, "height": 38},
-                "tileFilter": {},
-            },
-            {
-                "name": "Quality Gate Monitored Period",
-                "tileType": "HEADER",
-                "configured": True,
-                "bounds": {"top": 190, "left": 0, "width": 304, "height": 38},
-                "tileFilter": {},
-            },
-        ],
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Api-Token {token}",
-    }
-    url = f"{env}/api/config/v1/dashboards"
-    r = requests.post(url, json=body, headers=headers)
-    print(f"uri: {url}, response: {r}, resBody: {r.text}")
-
-
 ## NOTES
 # It looks like for Services there's no process group tied to it in the v2 API?
 # This makes it very hard to 'walk' the entity graph - even when I 'walk' to a SERVICE_INSTANCE
@@ -302,11 +160,9 @@ if __name__ == "__main__":
     
     # Add events to the service for the qg period and change start/end times
     for change in changes:
-
         # process the qg period
         # make this a separate entry = no weird processing
-        letter = change["TestPeriod"][-1:]  
-        val = int(change["TestPeriod"][:-1])
+        letter,val = change["TestPeriod"][-1:],int(change["TestPeriod"][:-1])
         QualityGateLength = val * multiplier[letter]
         entityType = change["AffectedEntities"].split('-')[0]
 
@@ -315,79 +171,64 @@ if __name__ == "__main__":
         QualityCheckingStart = int(change["EndDate"])
         QualityCheckingEnd = int(change["EndDate"]) + QualityGateLength
 
-        # Get the entity and key components that relate to it.
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Api-Token {token}",
-        }
-        url = f"{env}/api/v2/metrics/query"
-        url += f"?metricSelector={urllib.parse.quote_plus(healthMetrics[entityType]['metric'])}"
-        url += "&entitySelector=" + urllib.parse.quote_plus(f'type("{entityType}"),entityId("{change["AffectedEntities"]}")')
-        # print(url)
-        r = requests.get(url, headers=headers)
-        # print(f"uri: {url}, response: {r}, resBody: {r.text}")
+        headers = { "Content-Type": "application/json", "Authorization": f"Api-Token {token}" }
+        reference_period_query = f"{env}/api/v2/metrics/query" \
+                + f"?metricSelector={urllib.parse.quote_plus(healthMetrics[entityType]['metric'])}" \
+                + "&entitySelector=" + urllib.parse.quote_plus(f'type("{entityType}"),entityId("{change["AffectedEntities"]}")') \
+                + f'&from={referencePeriodStart}' \
+                + f'&to={referencePeriodEnd}' \
+                + f'&resolution=Inf'
+        reference_result = requests.get(reference_period_query, headers=headers)
+        print(f"uri: {reference_period_query}, response: {reference_result}, resBody: {reference_result.text}")
+
+        quality_checking_query = f"{env}/api/v2/metrics/query" \
+                + f"?metricSelector={urllib.parse.quote_plus(healthMetrics[entityType]['metric'])}" \
+                + "&entitySelector=" + urllib.parse.quote_plus(f'type("{entityType}"),entityId("{change["AffectedEntities"]}")') \
+                + f'&from={QualityCheckingStart}' \
+                + f'&to={QualityCheckingEnd}' \
+                + f'&resolution=Inf'
+        quality_checking_result = requests.get(quality_checking_query, headers=headers)
+        print(f"uri: {quality_checking_query}, response: {quality_checking_result}, resBody: {quality_checking_result.text}")
+
+        # Use the 
+        # If there was more than a 5% increase in response time
+        if (pre_median-post_median < -0.05*pre_median):
+            print(f"A significant difference was detected after the change - consider investigation or change roll-back")
+        else: 
+            print(f"No Quality impact detected after the change")
 
         # This is the bit that works with the new API
         # if the current drops against the extant or a static then problem
 
-ChangeFinishTime = 1606711764531
-entity = 'SERVICE-2140EC6FA1E12D6F'
-metric = 'builtin:service.response.time'
 
-# Get the entity and key components that relate to it.
-pre_change_query = f'{env}/api/v2/metrics/query?metricSelector={metric}:percentile(50)' \
-                        + f'&entitySelector=type("{entity.split("-")[0]}"),entityId("{entity}")'\
-                        + f'&from={ChangeFinishTime-60 * 60 * 24 * 1000}' \
-                        + f'&to={ChangeFinishTime}' \
-                        + f'&resolution=Inf'
-pre_Change = requests.get(pre_change_query, headers={"Content-Type": "application/json","Authorization": f"Api-Token {token}"})
-pre_median = json.loads(pre_Change.text)['result'][0]['data'][0]['values'][0]
+""" Extra stuff we can ignore for simple demo
+# mark the change period
+createDynatraceEvent(
+    change["AffectedEntities"],
+    {
+        "name": f"{change['ChangeID']} - Change Period",
+        "starttime": int(change["StartDate"]),
+        "endtime": int(change["EndDate"]),
+    },
+)
 
-post_change_query = f'{env}/api/v2/metrics/query?metricSelector={metric}:percentile(50)' \
-                        + f'&entitySelector=type("{entity.split("-")[0]}"),entityId("{entity}")' \
-                        + f'&from={ChangeFinishTime}' \
-                        + f'&to={ChangeFinishTime+60 * 60 * 24 * 1000}' \
-                        + f'&resolution=Inf'
-post_Change = requests.get(post_change_query, headers={"Content-Type": "application/json","Authorization": f"Api-Token {token}"})
-post_median = json.loads(post_Change.text)['result'][0]['data'][0]['values'][0]
+# mark the quality gate reference period
+createDynatraceEvent(
+    change["AffectedEntities"],
+    {
+        "name": f"{change['ChangeID']} - Quality Gate Reference Period",
+        "starttime": referencePeriodStart,
+        "endtime": referencePeriodEnd,
+    },
+)
 
-# If there was more than a 5% increase in response time
-if (pre_median-post_median < -0.05*pre_median): 
-    print(f"A significant different was detected after the change - consider investigation or change roll-back")
-else: 
-    print(f"No Quality impact detected after the change")
-
-exit
-        
-
-        """ Extra stuff we can ignore for simple demo
-        # mark the change period
-        createDynatraceEvent(
-            change["AffectedEntities"],
-            {
-                "name": f"{change['ChangeID']} - Change Period",
-                "starttime": int(change["StartDate"]),
-                "endtime": int(change["EndDate"]),
-            },
-        )
-
-        # mark the quality gate reference period
-        createDynatraceEvent(
-            change["AffectedEntities"],
-            {
-                "name": f"{change['ChangeID']} - Quality Gate Reference Period",
-                "starttime": referencePeriodStart,
-                "endtime": referencePeriodEnd,
-            },
-        )
-
-        # Mark the quality gate watching period
-        createDynatraceEvent(
-            change["AffectedEntities"],
-            {
-                "name": f"{change['ChangeID']} - Quality Gate Period",
-                "starttime": QualityCheckingStart,
-                "endtime": QualityCheckingEnd,
-            },
-        )
-        """
+# Mark the quality gate watching period
+createDynatraceEvent(
+    change["AffectedEntities"],
+    {
+        "name": f"{change['ChangeID']} - Quality Gate Period",
+        "starttime": QualityCheckingStart,
+        "endtime": QualityCheckingEnd,
+    },
+)
+"""
