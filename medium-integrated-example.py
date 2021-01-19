@@ -2,11 +2,12 @@
 import json, requests, os
 import urllib.parse, csv
 
-env = "https://lzq49041.live.dynatrace.com"
-token = os.getenv("hotsessiontoken")
+env = os.getenv("hotsession_environment") 
+env = "https://lzq49041.live.dynatrace.com" # remove this for final
+token = os.getenv("hotsession_token")
 
-# Conversion for time periods
-multiplier = {
+# Conversion for time periods into milliseconds
+timewindow_to_ms_lookup = {
     "S": 1000,
     "M": 60 * 1000,
     "H": 60 * 60 * 1000,
@@ -63,40 +64,6 @@ def parseChangeDetails(file):
         return list(changes)
 
 
-def createDynatraceEvent(entity, eventData):
-    """Create a Dynatrace Event on the entity using information in eventData
-
-    Args:
-        entity (string): A Dynatrace Entity Type <ENTITY-TYPE>-<IDENTIFIER>
-        eventData (dict): 
-            name: string
-            starttime: number
-            endtime: number
-
-    """
-    print(eventData)
-    body = {
-        "eventType": "CUSTOM_INFO",
-        "start": eventData["starttime"],
-        "end": eventData["endtime"],
-        "timeoutMinutes": 0,
-        "attachRules": {
-            "entityIds": [entity],
-        },
-        "title": eventData["name"],
-        "description": eventData["name"],
-        "source": "Hot-Session-Python-Quality-Gate",
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Api-Token {token}",
-    }
-    # print(headers)
-    url = f"{env}/api/v1/events"
-    r = requests.post(url, json=body, headers=headers)
-    # print(f"uri: {url}, response: {r}, resBody: {r.text}")
-
-
 def createDynatraceProblem(entity, eventData):
     """ Create 
 
@@ -114,7 +81,7 @@ def createDynatraceProblem(entity, eventData):
             "entityIds": [entity],
         },
         "title": eventData["name"],
-        "description": eventData["name"],
+        "description": eventData["description"],
         "source": "Hot-Session-Python-Quality-Gate",
     }
     headers = {
@@ -125,55 +92,48 @@ def createDynatraceProblem(entity, eventData):
     r = requests.post(url, json=body, headers=headers)
     print(f"uri: {url}, response: {r}, resBody: {r.text}")
 
-
-def fetchEntityDetails(entity, start=None, end=None):
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Api-Token {token}",
-    }
-    url = f"{env}/api/v2/entities/{entity}"
-    if start and end:
-        url += f"?to={end}&from={start}"
-    elif start:
-        url += f"?from={start}"
-    elif end:
-        url += f"?to={end}"
-
-    r = requests.get(url, headers=headers)
-    print(f"uri: {url}, response: {r}, resBody: {r.text}")
-
-## NOTES
-# It looks like for Services there's no process group tied to it in the v2 API?
-# This makes it very hard to 'walk' the entity graph - even when I 'walk' to a SERVICE_INSTANCE
-
-# Recieve Change data from Slack?
-# - Needs web server
-# - Parse json webhook out
-# - cron'ing ability
-
-# Stretch goals
-# Create Dashboard
-
 if __name__ == "__main__":
     # Grab the change details from the target file
     changes = parseChangeDetails("./singlechangeExample.csv")
     
-    # Add events to the service for the qg period and change start/end times
+    # Loop through each of the changes that have been provided via the csv file
     for change in changes:
-        # process the qg period
-        # make this a separate entry = no weird processing
-        letter,val = change["TestPeriod"][-1:],int(change["TestPeriod"][:-1])
-        QualityGateLength = val * multiplier[letter]
+        """
+        A Change looks like this: 
+        |<-------Reference Period--------->|<---Change Window--->|<-------Quality Checking Period-------->|
+
+        We will create a Problem if during the quality checking period, the performance or 
+            health drops below what was recorded in the the Reference Period
+        Both the reference period and the quality checking periods will be the same length
+
+        For each change we will: 
+            1. Determine the length of the windows we're using
+            2. Determine the type of entity that the change is affecting
+            3. Determine the reference and quality windows based on when the change started and finished
+            4. Query the health of the affected entity using the calculated windows
+            5. Raise a problem if there was a problematic difference
+        """
+        print(f"Processing Change: {change['ChangeID']}")
+
+        # How long will the gating windows be? - Transform '22H' (example) into a letter and value
+        letter,val = change["TestPeriod"][-1:], int(change["TestPeriod"][:-1])
+        window_length = val * timewindow_to_ms_lookup[letter]
+        
+        # Get the entityType from the change entity
         entityType = change["AffectedEntities"].split('-')[0]
 
-        referencePeriodStart = int(change["StartDate"]) - QualityGateLength
+        # Calculate the Reference and QualityGate windows
+        referencePeriodStart = int(change["StartDate"]) - window_length
         referencePeriodEnd = int(change["StartDate"])
-        QualityCheckingStart = int(change["EndDate"])
-        QualityCheckingEnd = int(change["EndDate"]) + QualityGateLength
+        QualityGateStart = int(change["EndDate"])
+        QualityGateEnd = int(change["EndDate"]) + window_length
 
+        # Make a headers object for our queries
         headers = { "Content-Type": "application/json", "Authorization": f"Api-Token {token}" }
+
+        # Query Dynatrace for the Metric median during the Reference and QualityGate windows
         reference_period_query = f"{env}/api/v2/metrics/query" \
-                + f"?metricSelector={urllib.parse.quote_plus(healthMetrics[entityType]['metric'])}" \
+                + f"?metricSelector={urllib.parse.quote_plus(healthMetrics[entityType]['metric'] + ':percentile(50)')}" \
                 + "&entitySelector=" + urllib.parse.quote_plus(f'type("{entityType}"),entityId("{change["AffectedEntities"]}")') \
                 + f'&from={referencePeriodStart}' \
                 + f'&to={referencePeriodEnd}' \
@@ -182,23 +142,26 @@ if __name__ == "__main__":
         print(f"uri: {reference_period_query}, response: {reference_result}, resBody: {reference_result.text}")
 
         quality_checking_query = f"{env}/api/v2/metrics/query" \
-                + f"?metricSelector={urllib.parse.quote_plus(healthMetrics[entityType]['metric'])}" \
+                + f"?metricSelector={urllib.parse.quote_plus(healthMetrics[entityType]['metric'] + ':percentile(50)')}" \
                 + "&entitySelector=" + urllib.parse.quote_plus(f'type("{entityType}"),entityId("{change["AffectedEntities"]}")') \
-                + f'&from={QualityCheckingStart}' \
-                + f'&to={QualityCheckingEnd}' \
+                + f'&from={QualityGateStart}' \
+                + f'&to={QualityGateEnd}' \
                 + f'&resolution=Inf'
         quality_checking_result = requests.get(quality_checking_query, headers=headers)
         print(f"uri: {quality_checking_query}, response: {quality_checking_result}, resBody: {quality_checking_result.text}")
 
-        # Use the 
-        # If there was more than a 5% increase in response time
+        # Determine if the Quality Gate should be triggered
         if (pre_median-post_median < -0.05*pre_median):
-            print(f"A significant difference was detected after the change - consider investigation or change roll-back")
+            print(f"A significant difference was detected after the change - raising a performance problem against the affected entities")
+            createDynatraceProblem(change["AffectedEntities"], {
+                "name": f"Broken Quality Gate for Change: '{change['ChangeID']}'",
+                "description": f"The performance of {entityType} for {healthMetrics[entityType]['metric']} dropped by {difference}.\n \
+                    The acceptable difference for a {entityType} entity is less than {healthMetrics[entityType]['delta']}%",
+                "startime": QualityGateStart,
+                "endtime": QualityGateEnd,
+            })
         else: 
             print(f"No Quality impact detected after the change")
-
-        # This is the bit that works with the new API
-        # if the current drops against the extant or a static then problem
 
 
 """ Extra stuff we can ignore for simple demo
