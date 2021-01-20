@@ -19,18 +19,18 @@ timewindow_to_ms_lookup = {
 healthMetrics = {
     "APPLICATION": {
         "metric": "builtin:apps.web.action.percentageOfUserActionsAffectedByErrors",
-        "maxDelta": 5,
+        "maxPercentDiff": 5,
     },
-    "SERVICE": {"metric": "builtin:service.errors.total.rate", "maxDelta": 5},
-    "PROCESS_GROUP": {"metric": "", "maxDelta": 5},
-    "HOST": {"metric": "", "maxDelta": 5},
+    "SERVICE": {"metric": "builtin:service.errors.total.rate", "maxPercentDiff": 5},
+    "PROCESS_GROUP": {"metric": "", "maxPercentDiff": 5},
+    "HOST": {"metric": "", "maxPercentDiff": 5},
 }
 
 performanceMetrics = {
-    "APPLICATION": {"metric": "builtin:apps.other.apdex.osAndGeo", "maxDelta": 5},
-    "SERVICE": {"metric": "builtin:service.response.time", "maxDelta": 5},
-    "PROCESS_GROUP": {"metric": "", "maxDelta": 5},
-    "HOST": {"metric": "", "maxDelta": 5},
+    "APPLICATION": {"metric": "builtin:apps.other.apdex.osAndGeo", "maxPercentDiff": -5},
+    "SERVICE": {"metric": "builtin:service.response.time", "maxPercentDiff": 5},
+    "PROCESS_GROUP": {"metric": "", "maxPercentDiff": 5},
+    "HOST": {"metric": "", "maxPercentDiff": 5},
 }
 
 def parseChangeDetails(file):
@@ -133,25 +133,32 @@ if __name__ == "__main__":
 
         # Query Dynatrace for the Metric median during the Reference and QualityGate windows
         reference_period_query = f"{env}/api/v2/metrics/query" \
-                + f"?metricSelector={urllib.parse.quote_plus(healthMetrics[entityType]['metric'] + ':percentile(50)')}" \
+                + f"?metricSelector={urllib.parse.quote_plus(healthMetrics[entityType]['metric'] + ':avg')}" \
                 + "&entitySelector=" + urllib.parse.quote_plus(f'type("{entityType}"),entityId("{change["AffectedEntities"]}")') \
                 + f'&from={referencePeriodStart}' \
                 + f'&to={referencePeriodEnd}' \
                 + f'&resolution=Inf'
-        reference_result = requests.get(reference_period_query, headers=headers)
-        print(f"uri: {reference_period_query}, response: {reference_result}, resBody: {reference_result.text}")
+        reference_response = requests.get(reference_period_query, headers=headers)
+        reference_value = json.loads(reference_response.text)['result'][0]['data'][0]['values'][0]
+        print(f"uri: {reference_period_query}, response: {reference_response}, resBody: {reference_response.text}")
 
         quality_checking_query = f"{env}/api/v2/metrics/query" \
-                + f"?metricSelector={urllib.parse.quote_plus(healthMetrics[entityType]['metric'] + ':percentile(50)')}" \
+                + f"?metricSelector={urllib.parse.quote_plus(healthMetrics[entityType]['metric'] + ':avg')}" \
                 + "&entitySelector=" + urllib.parse.quote_plus(f'type("{entityType}"),entityId("{change["AffectedEntities"]}")') \
                 + f'&from={QualityGateStart}' \
                 + f'&to={QualityGateEnd}' \
                 + f'&resolution=Inf'
-        quality_checking_result = requests.get(quality_checking_query, headers=headers)
-        print(f"uri: {quality_checking_query}, response: {quality_checking_result}, resBody: {quality_checking_result.text}")
+        quality_checking_response = requests.get(quality_checking_query, headers=headers)
+        quality_checking_value = json.loads(quality_checking_response.text)['result'][0]['data'][0]['values'][0]
+        print(f"uri: {quality_checking_query}, response: {quality_checking_response}, resBody: {quality_checking_response.text}")
 
         # Determine if the Quality Gate should be triggered
-        if (pre_median-post_median < -0.05*pre_median):
+        valueDifference = reference_value-quality_checking_value
+        maxDifferenceFromReferencePeriod = healthMetrics[entityType]['maxPercentDiff']/100*reference_value
+        
+        # If the value diff is larger than the allowable amount
+        print(f"Comparing Reference: {reference_value} with Quality Gate Period: {quality_checking_value}")
+        if (valueDifference > maxDifferenceFromReferencePeriod):
             print(f"A significant difference was detected after the change - raising a performance problem against the affected entities")
             createDynatraceProblem(change["AffectedEntities"], {
                 "name": f"Broken Quality Gate for Change: '{change['ChangeID']}'",
@@ -162,36 +169,3 @@ if __name__ == "__main__":
             })
         else: 
             print(f"No Quality impact detected after the change")
-
-
-""" Extra stuff we can ignore for simple demo
-# mark the change period
-createDynatraceEvent(
-    change["AffectedEntities"],
-    {
-        "name": f"{change['ChangeID']} - Change Period",
-        "starttime": int(change["StartDate"]),
-        "endtime": int(change["EndDate"]),
-    },
-)
-
-# mark the quality gate reference period
-createDynatraceEvent(
-    change["AffectedEntities"],
-    {
-        "name": f"{change['ChangeID']} - Quality Gate Reference Period",
-        "starttime": referencePeriodStart,
-        "endtime": referencePeriodEnd,
-    },
-)
-
-# Mark the quality gate watching period
-createDynatraceEvent(
-    change["AffectedEntities"],
-    {
-        "name": f"{change['ChangeID']} - Quality Gate Period",
-        "starttime": QualityCheckingStart,
-        "endtime": QualityCheckingEnd,
-    },
-)
-"""
