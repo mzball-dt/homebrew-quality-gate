@@ -5,6 +5,7 @@ import urllib.parse, csv
 env = os.getenv("hotsession_environment") 
 env = "https://lzq49041.live.dynatrace.com" # remove this for final
 token = os.getenv("hotsession_token")
+ChangeCSVFile = "./singlechangeExample.csv"
 
 # Conversion for time periods into milliseconds
 timewindow_to_ms_lookup = {
@@ -94,7 +95,7 @@ def createDynatraceProblem(entity, eventData):
 
 if __name__ == "__main__":
     # Grab the change details from the target file
-    changes = parseChangeDetails("./singlechangeExample.csv")
+    changes = parseChangeDetails(ChangeCSVFile)
     
     # Loop through each of the changes that have been provided via the csv file
     for change in changes:
@@ -140,7 +141,7 @@ if __name__ == "__main__":
                 + f'&resolution=Inf'
         reference_response = requests.get(reference_period_query, headers=headers)
         reference_value = json.loads(reference_response.text)['result'][0]['data'][0]['values'][0]
-        print(f"uri: {reference_period_query}, response: {reference_response}, resBody: {reference_response.text}")
+        # print(f"uri: {reference_period_query}, response: {reference_response}, resBody: {reference_response.text}")
 
         quality_checking_query = f"{env}/api/v2/metrics/query" \
                 + f"?metricSelector={urllib.parse.quote_plus(healthMetrics[entityType]['metric'] + ':avg')}" \
@@ -150,7 +151,7 @@ if __name__ == "__main__":
                 + f'&resolution=Inf'
         quality_checking_response = requests.get(quality_checking_query, headers=headers)
         quality_checking_value = json.loads(quality_checking_response.text)['result'][0]['data'][0]['values'][0]
-        print(f"uri: {quality_checking_query}, response: {quality_checking_response}, resBody: {quality_checking_response.text}")
+        # print(f"uri: {quality_checking_query}, response: {quality_checking_response}, resBody: {quality_checking_response.text}")
 
         # Determine if the Quality Gate should be triggered
         valueDifference = reference_value-quality_checking_value
@@ -169,3 +170,5 @@ if __name__ == "__main__":
             })
         else: 
             print(f"No Quality impact detected after the change")
+
+    print(f"Finished Quality Gate checks for changes found in {ChangeCSVFile}")
